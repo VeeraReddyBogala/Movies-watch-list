@@ -1,10 +1,9 @@
 export async function GET(request, context) {
   const apiKey = process.env.OMDB_API_KEY;
-  const { id } = await context.params; // ✅ await here
+  const { id } = await context.params;
 
   try {
     const res = await fetch(`http://www.omdbapi.com/?apikey=${apiKey}&i=${id}`);
-
     if (!res.ok) {
       return new Response(
         JSON.stringify({ error: "Failed to fetch movie details" }),

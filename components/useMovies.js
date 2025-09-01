@@ -29,6 +29,7 @@ export function useMovies(query) {
         }
 
         setMovies(data.Search || []);
+        setError("");
       } catch (err) {
         if (err.name !== "AbortError") {
           setError(err.message);
@@ -38,14 +39,20 @@ export function useMovies(query) {
       }
     }
 
-    if (!query || query.trim() === "") {
+    if (query.length < 3) {
       setMovies([]);
       setError("");
       return;
     }
 
-    fetchMovies();
-    return () => controller.abort();
+    const timer = setTimeout(() => {
+      fetchMovies();
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [query]);
 
   return { movies, isLoading, error };

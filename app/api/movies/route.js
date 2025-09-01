@@ -1,4 +1,3 @@
-// app/api/movies/route.js
 import { NextResponse } from "next/server";
 
 const OMDB_API_KEY = process.env.OMDB_API_KEY;

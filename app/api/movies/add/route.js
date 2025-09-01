@@ -1,36 +1,41 @@
-// app/api/movies/add/route.js
-
-import { supabase } from "@/lib/supabase";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-export async function POST(req) {
-  try {
-    const movie = await req.json();
+export async function POST(request) {
+  const movieData = await request.json();
+  const supabase = createRouteHandlerClient({ cookies });
 
-    // ✅ Optional check for required fields
-    if (!movie.imdbID || !movie.title) {
-      return NextResponse.json(
-        { message: "Missing required fields" },
-        { status: 400 }
-      );
-    }
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-    const { data, error } = await supabase.from("watched").insert([movie]);
-
-    if (error) {
-      console.error("❌ Supabase insert error:", error.message);
-      return NextResponse.json({ message: error.message }, { status: 500 });
-    }
-
+  if (!user) {
     return NextResponse.json(
-      { message: "Movie added successfully", data },
-      { status: 201 }
-    );
-  } catch (err) {
-    console.error("❌ Error in POST /api/movies/add:", err.message);
-    return NextResponse.json(
-      { message: "Invalid request body" },
-      { status: 400 }
+      { error: "You must be logged in to add a movie." },
+      { status: 401 }
     );
   }
+
+  const { data, error } = await supabase
+    .from("watched")
+    .insert({
+      imdbID: movieData.imdbID,
+      title: movieData.title,
+      year: movieData.year,
+      poster: movieData.poster,
+      runtime: movieData.runtime,
+      imdbRating: movieData.imdbRating,
+      userRating: movieData.userRating,
+      user_id: user.id,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    console.error("Error adding movie to Supabase:", error);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json(data);
 }

@@ -1,83 +1,63 @@
+"use client";
+
 import { useEffect, useRef, useState } from "react";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import StarRating from "./StarRating";
 import { useKey } from "./useKey";
-import { useMovies } from "./useMovies"; // fetching data from useMovies hook
+import { useMovies } from "./useMovies";
 import WatchedSummary from "@/components/WatchedSummary";
+import AuthForm from "./AuthForm";
 
 const average = (arr) =>
   arr.reduce((acc, cur, i, arr) => acc + cur / arr.length, 0);
-
-const KEY = "f84fc31d";
 
 export default function App() {
   const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState(null);
   const { movies, isLoading, error } = useMovies(query);
-
   const [watched, setWatched] = useState([]);
-  useEffect(() => {
-    fetchWatchedMovies(); // Load once when app starts
-  }, []);
 
-  async function fetchWatchedMovies() {
-    try {
-      const res = await fetch("/api/movies/list");
-      const data = await res.json();
-
-      if (!res.ok) {
-        console.error("Failed to load watched movies:", data.error);
-        return;
-      }
-
-      setWatched(data);
-    } catch (err) {
-      console.error("Error fetching watched movies:", err.message);
-    }
-  }
+  //STATES FOR AUTHENTICATION
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const supabase = createClientComponentClient();
 
   async function handleAddWatched(movie) {
     try {
       const movieToAdd = { ...movie, imdbID: movie.imdbID.toLowerCase() };
-
       const response = await fetch("/api/movies/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(movieToAdd),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        console.error("Failed to add movie:", data.message);
-        return;
-      }
-
-      console.log("✅ Movie added successfully:", data);
-
+      if (!response.ok) throw new Error(data.message);
       setWatched((prev) => [...prev, movieToAdd]);
     } catch (err) {
-      console.error("Network or server error:", err.message);
+      console.error("Error adding movie:", err.message);
     }
   }
 
   async function handleDeleteWatched(imdbID) {
     try {
+      setWatched((watched) =>
+        watched.filter((movie) => movie.imdbID !== imdbID.toLowerCase())
+      );
+
       const res = await fetch(`/api/movies/delete/${imdbID.toLowerCase()}`, {
         method: "DELETE",
       });
 
-      const data = await res.json();
-      console.log("🟡 Delete API response:", res.status, data);
-
-      if (!res.ok) {
-        throw new Error(data.error || data.message || "Failed to delete movie");
-      }
-
-      setWatched((watched) =>
-        watched.filter((movie) => movie.imdbID !== imdbID.toLowerCase())
-      );
+      if (!res.ok) throw new Error("Failed to delete movie from database");
     } catch (err) {
       console.error("Delete error:", err.message);
+    }
+  }
+
+  async function handleLogout() {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("Error logging out:", error.message);
     }
   }
 
@@ -89,42 +69,87 @@ export default function App() {
     setSelectedId(null);
   }
 
+  useEffect(() => {
+    async function getSessionAndMovies() {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      setSession(session);
+
+      if (session) {
+        const { data: watchedMovies, error } = await supabase
+          .from("watched")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error("Error fetching watched movies:", error);
+        } else {
+          setWatched(watchedMovies || []);
+        }
+      }
+      setLoading(false);
+    }
+    getSessionAndMovies();
+  }, [supabase]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (!session) {
+        setWatched([]);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [supabase.auth]);
+
+  if (loading) {
+    return <Loader />;
+  }
   return (
     <>
-      <NavBar>
-        <Search query={query} setQuery={setQuery} />
-        <NumResults movies={movies} />
-      </NavBar>
-
-      <Main>
-        <Box>
-          {/* {isLoading ? <Loader /> : <MovieList movies={movies} />} */}
-          {isLoading && <Loader />}
-          {!isLoading && !error && (
-            <MovieList movies={movies} onSelectMovie={handleSelectMovie} />
-          )}
-          {error && <ErrorMessage message={error} />}
-        </Box>
-
-        <Box>
-          {selectedId ? (
-            <MovieDetails
-              selectedId={selectedId}
-              onCloseMovie={handleCloseMovie}
-              onAddWatched={handleAddWatched}
-              watched={watched}
-            />
-          ) : (
-            <>
-              <WatchedSummary watched={watched} />
-              <WatchedMoviesList
-                watched={watched}
-                onDeleteWatched={handleDeleteWatched}
-              />
-            </>
-          )}
-        </Box>
-      </Main>
+      {!session ? (
+        <div className="auth-container">
+          <Logo />
+          <AuthForm />
+        </div>
+      ) : (
+        <>
+          <NavBar user={session.user} onLogout={handleLogout}>
+            <Search query={query} setQuery={setQuery} />
+            <NumResults movies={movies} />
+          </NavBar>
+          <Main>
+            <Box>
+              {isLoading && <Loader />}
+              {!isLoading && !error && (
+                <MovieList movies={movies} onSelectMovie={handleSelectMovie} />
+              )}
+              {error && <ErrorMessage message={error} />}
+            </Box>
+            <Box>
+              {selectedId ? (
+                <MovieDetails
+                  selectedId={selectedId}
+                  onCloseMovie={handleCloseMovie}
+                  onAddWatched={handleAddWatched}
+                  watched={watched}
+                />
+              ) : (
+                <>
+                  <WatchedSummary watched={watched} />
+                  <WatchedMoviesList
+                    watched={watched}
+                    onDeleteWatched={handleDeleteWatched}
+                  />
+                </>
+              )}
+            </Box>
+          </Main>
+        </>
+      )}
     </>
   );
 }
@@ -141,11 +166,19 @@ function ErrorMessage({ message }) {
   );
 }
 
-function NavBar({ children }) {
+function NavBar({ children, user, onLogout }) {
   return (
     <nav className="nav-bar">
       <Logo />
       {children}
+      {user && (
+        <div className="user-info">
+          <p>Welcome, {user.email}</p>
+          <button className="btn-logout" onClick={onLogout}>
+            Logout
+          </button>
+        </div>
+      )}
     </nav>
   );
 }
@@ -154,7 +187,7 @@ function Logo() {
   return (
     <div className="logo">
       <span role="img">🍿</span>
-      <h1>Movies List</h1>
+      <h1>Movies Watch List</h1>
     </div>
   );
 }
@@ -163,9 +196,11 @@ function Search({ query, setQuery }) {
   const inputEl = useRef(null);
 
   useKey("Enter", function () {
-    if (document.activeElement === inputEl.current) return;
-    inputEl.current.focus();
-    setQuery("");
+    if (document.activeElement !== inputEl.current) {
+      inputEl.current.focus();
+    } else {
+      setQuery("");
+    }
   });
 
   return (
@@ -206,36 +241,15 @@ function Box({ children }) {
   );
 }
 
-/*
-function WatchedBox() {
-  const [watched, setWatched] = useState(tempWatchedData);
-  const [isOpen2, setIsOpen2] = useState(true);
-
-  return (
-    <div className="box">
-      <button
-        className="btn-toggle"
-        onClick={() => setIsOpen2((open) => !open)}
-      >
-        {isOpen2 ? "–" : "+"}
-      </button>
-
-      {isOpen2 && (
-        <>
-          <WatchedSummary watched={watched} />
-          <WatchedMoviesList watched={watched} />
-        </>
-      )}
-    </div>
-  );
-}
-*/
-
 function MovieList({ movies, onSelectMovie }) {
   return (
     <ul className="list list-movies">
-      {movies?.map((movie) => (
-        <Movie movie={movie} key={movie.imdbID} onSelectMovie={onSelectMovie} />
+      {movies?.map((movie, index) => (
+        <Movie
+          movie={movie}
+          key={`${movie.imdbID}-${index}`} // Combine imdbID and index
+          onSelectMovie={onSelectMovie}
+        />
       ))}
     </ul>
   );
@@ -287,22 +301,8 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
     Genre: genre,
   } = movie;
 
-  // if (imdbRating > 8) return <p>Greatest ever!</p>;
-  // if (imdbRating > 8) [isTop, setIsTop] = useState(true);
-
-  // const [isTop, setIsTop] = useState(imdbRating > 8);
-  // console.log(isTop);
-  // useEffect(
-  //   function () {
-  //     setIsTop(imdbRating > 8);
-  //   },
-  //   [imdbRating]
-  // );
-
   const isTop = imdbRating > 8;
   console.log(isTop);
-
-  // const [avgRating, setAvgRating] = useState(0);
 
   function handleAdd() {
     const newWatchedMovie = {
@@ -318,9 +318,6 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
 
     onAddWatched(newWatchedMovie);
     onCloseMovie();
-
-    // setAvgRating(Number(imdbRating));
-    // setAvgRating((avgRating) => (avgRating + userRating) / 2);
   }
 
   useKey("Escape", onCloseMovie);
@@ -329,7 +326,9 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
     function () {
       async function getMovieDetails() {
         setIsLoading(true);
-        const res = await fetch(`/api/movie/${selectedId}`);
+        const res = await fetch(
+          `https://www.omdbapi.com/?apikey=f84fc31d&i=${selectedId}`
+        );
         const data = await res.json();
         setMovie(data);
         setIsLoading(false);
@@ -345,8 +344,7 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
       document.title = `Movie | ${title}`;
 
       return function () {
-        document.title = "usePopcorn";
-        // console.log(`Clean up effect for movie ${title}`);
+        document.title = "Movies WatchList";
       };
     },
     [title]
@@ -375,8 +373,6 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
               </p>
             </div>
           </header>
-
-          {/* <p>{avgRating}</p> */}
 
           <section>
             <div className="rating">
@@ -455,7 +451,6 @@ function WatchedMovie({ movie, onDeleteWatched }) {
               : "N/A"}
           </span>
         </p>
-
         <button
           className="btn-delete"
           onClick={() => onDeleteWatched(movie.imdbID)}

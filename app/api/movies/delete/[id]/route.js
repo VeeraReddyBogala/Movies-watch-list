@@ -1,33 +1,31 @@
-import { supabase } from "@/lib/supabase";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-export async function DELETE(req, { params }) {
-  const imdbID = params.id?.trim().toLowerCase();
-  console.log(`🎬 Attempting to delete movie with imdbID: ${imdbID}`);
+export async function DELETE(request, { params }) {
+  const id = params.id;
 
-  const { data, error } = await supabase
-    .from("watched")
-    .delete()
-    .eq("imdbID", imdbID)
-    .select();
+  const supabase = createRouteHandlerClient({ cookies });
 
-  if (error) {
-    console.error("Supabase deletion error:", error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  console.log("🔎 Supabase delete response:", data);
+  const { error } = await supabase
+    .from("watched")
+    .delete()
+    .match({ imdbID: id });
 
-  if (!data || data.length === 0) {
-    console.warn("No movie found with this imdbID in Supabase");
+  if (error) {
+    console.error("Supabase delete error:", error);
     return NextResponse.json(
-      { message: `No movie found with imdbID ${imdbID}` },
-      { status: 404 }
+      { error: "Failed to delete movie." },
+      { status: 500 }
     );
   }
 
-  return NextResponse.json(
-    { message: `Movie with imdbID ${imdbID} deleted`, deleted: data },
-    { status: 200 }
-  );
+  return NextResponse.json({ message: "Movie deleted successfully." });
 }
