@@ -384,3 +384,90 @@ body {
   align-items: center;
   justify-content: center;
 }
+
+/* comments */
+
+/* Add these styles for the new comments section */
+.comments-section {
+  padding: 2rem 4rem 4rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.comment-form textarea {
+  background-color: var(--color-background-100);
+  color: var(--color-text);
+  border: 1px solid var(--color-background-100);
+  border-radius: 7px;
+  padding: 1rem;
+  font-family: inherit;
+  font-size: 1.4rem;
+  min-height: 80px;
+  resize: vertical;
+}
+
+.comment-form button {
+  background-color: var(--color-primary);
+  color: var(--color-text);
+  border: none;
+  border-radius: 7px;
+  padding: 1rem;
+  font-size: 1.4rem;
+  font-weight: bold;
+  cursor: pointer;
+  align-self: flex-end; /* Aligns button to the right */
+  transition: background-color 0.2s;
+}
+
+.comment-form button:hover {
+  background-color: var(--color-primary-light);
+}
+
+.comment-form button:disabled {
+  background-color: var(--color-background-100);
+  cursor: not-allowed;
+}
+
+.comment {
+  background-color: var(--color-background-100);
+  padding: 1.5rem;
+  border-radius: 7px;
+  border-left: 3px solid var(--color-primary);
+}
+
+.comment p {
+  margin-bottom: 0.5rem;
+}
+
+.comment small {
+  color: var(--color-text-dark);
+}
+
+/* delete comment */
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.4rem;
+}
+.comment-author {
+  font-weight: bold;
+  font-size: 1.3rem;
+  color: #adb5bd;
+  margin: 0;
+}
+.btn-delete-comment {
+  background: none;
+  border: none;
+  color: #fa5252;
+  cursor: pointer;
+  font-size: 1.2rem;
+}

@@ -136,6 +136,7 @@ export default function App() {
                   onCloseMovie={handleCloseMovie}
                   onAddWatched={handleAddWatched}
                   watched={watched}
+                  user={session.user}
                 />
               ) : (
                 <>
@@ -247,7 +248,7 @@ function MovieList({ movies, onSelectMovie }) {
       {movies?.map((movie, index) => (
         <Movie
           movie={movie}
-          key={`${movie.imdbID}-${index}`} // Combine imdbID and index
+          key={`${movie.imdbID}-${index}`}
           onSelectMovie={onSelectMovie}
         />
       ))}
@@ -269,86 +270,165 @@ function Movie({ movie, onSelectMovie }) {
     </li>
   );
 }
-function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
+
+function MovieDetails({
+  selectedId,
+  onCloseMovie,
+  onAddWatched,
+  watched,
+  user,
+}) {
   const [movie, setMovie] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [userRating, setUserRating] = useState("");
+  const [comments, setComments] = useState([]);
+  const [authors, setAuthors] = useState({});
+  const [newComment, setNewComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const supabase = createClientComponentClient();
   const countRef = useRef(0);
 
-  useEffect(
-    function () {
-      if (userRating) countRef.current++;
-    },
-    [userRating]
-  );
-
-  const isWatched = watched.map((movie) => movie.imdbID).includes(selectedId);
+  const isWatched = watched
+    .map((movie) => movie.imdbID.toLowerCase())
+    .includes(selectedId.toLowerCase());
   const watchedUserRating = watched.find(
-    (movie) => movie.imdbID === selectedId
+    (movie) => movie.imdbID.toLowerCase() === selectedId.toLowerCase()
   )?.userRating;
 
   const {
-    Title: title,
-    Year: year,
-    Poster: poster,
-    Runtime: runtime,
-    imdbRating,
-    Plot: plot,
-    Released: released,
-    Actors: actors,
-    Director: director,
-    Genre: genre,
+    Title: title = "",
+    Year: year = "",
+    Poster: poster = "",
+    Runtime: runtime = "N/A",
+    imdbRating = "N/A",
+    Plot: plot = "",
+    Released: released = "",
+    Actors: actors = "",
+    Director: director = "",
+    Genre: genre = "",
   } = movie;
 
-  const isTop = imdbRating > 8;
-  console.log(isTop);
-
   function handleAdd() {
+    const runtimeValue = Number(runtime.split(" ").at(0));
     const newWatchedMovie = {
       imdbID: selectedId,
       title,
       year,
       poster,
       imdbRating: Number(imdbRating),
-      runtime: Number(runtime.split(" ").at(0)),
+      runtime: !isNaN(runtimeValue) ? runtimeValue : 0,
       userRating,
       countRatingDecisions: countRef.current,
     };
-
     onAddWatched(newWatchedMovie);
     onCloseMovie();
   }
 
+  async function handleAddComment(e) {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const response = await fetch("/api/comments/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          movie_id: selectedId.toLowerCase(),
+          content: newComment,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to post comment.");
+      }
+      setComments((currentComments) => [result, ...currentComments]);
+      setNewComment("");
+    } catch (error) {
+      console.error("Error submitting comment:", error.message);
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleDeleteComment(commentId) {
+    // Optimistically remove the comment from the UI
+    setComments(comments.filter((comment) => comment.id !== commentId));
+
+    // Call the backend to delete the comment from the database
+    await fetch(`/api/comments/delete/${commentId}`, {
+      method: "DELETE",
+    });
+  }
+
   useKey("Escape", onCloseMovie);
 
-  useEffect(
-    function () {
-      async function getMovieDetails() {
-        setIsLoading(true);
-        const res = await fetch(
-          `https://www.omdbapi.com/?apikey=f84fc31d&i=${selectedId}`
-        );
-        const data = await res.json();
-        setMovie(data);
-        setIsLoading(false);
+  useEffect(() => {
+    if (userRating) countRef.current++;
+  }, [userRating]);
+
+  useEffect(() => {
+    async function getMovieDetails() {
+      setIsLoading(true);
+      const res = await fetch(
+        `https://www.omdbapi.com/?apikey=f84fc31d&i=${selectedId}`
+      );
+      const data = await res.json();
+      setMovie(data);
+      setIsLoading(false);
+    }
+    if (selectedId) getMovieDetails();
+  }, [selectedId]);
+
+  useEffect(() => {
+    async function fetchComments() {
+      if (!selectedId) return;
+      const { data, error } = await supabase
+        .from("comments")
+        .select("id, created_at, content, user_id")
+        .eq("movie_id", selectedId.toLowerCase())
+        .order("created_at", { ascending: false });
+
+      if (error) console.error("Error fetching comments:", error);
+      else setComments(data || []);
+    }
+    fetchComments();
+  }, [selectedId, supabase]);
+
+  useEffect(() => {
+    async function fetchAuthors() {
+      if (comments.length === 0) {
+        setAuthors({}); // Clear authors if there are no comments
+        return;
       }
-      getMovieDetails();
-    },
-    [selectedId]
-  );
+      const userIds = [...new Set(comments.map((comment) => comment.user_id))];
 
-  useEffect(
-    function () {
-      if (!title) return;
-      document.title = `Movie | ${title}`;
+      const { data: authorsData, error } = await supabase.rpc(
+        "get_emails_for_user_ids",
+        { user_ids: userIds }
+      );
 
-      return function () {
-        document.title = "Movies WatchList";
-      };
-    },
-    [title]
-  );
+      if (error) {
+        console.error("Error fetching authors:", error);
+      } else {
+        const authorsMap = authorsData.reduce((acc, author) => {
+          acc[author.id] = author.email;
+          return acc;
+        }, {});
+        setAuthors(authorsMap);
+      }
+    }
+    fetchAuthors();
+  }, [comments, supabase]);
+
+  useEffect(() => {
+    if (!title) return;
+    document.title = `Movie | ${title}`;
+    return () => {
+      document.title = "Movies WatchList";
+    };
+  }, [title]);
 
   return (
     <div className="details">
@@ -360,7 +440,9 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
             <button className="btn-back" onClick={onCloseMovie}>
               &larr;
             </button>
-            <img src={poster} alt={`Poster of ${movie} movie`} />
+            {poster && poster !== "N/A" && (
+              <img src={poster} alt={`Poster of ${title} movie`} />
+            )}
             <div className="details-overview">
               <h2>{title}</h2>
               <p>
@@ -391,7 +473,7 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
                 </>
               ) : (
                 <p>
-                  You rated with movie {watchedUserRating} <span>⭐️</span>
+                  You rated this movie {watchedUserRating} <span>⭐️</span>
                 </p>
               )}
             </div>
@@ -400,6 +482,52 @@ function MovieDetails({ selectedId, onCloseMovie, onAddWatched, watched }) {
             </p>
             <p>Starring {actors}</p>
             <p>Directed by {director}</p>
+          </section>
+
+          <section className="comments-section">
+            <h3>Comments ({comments.length})</h3>
+            <form className="comment-form" onSubmit={handleAddComment}>
+              <textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Write your comment here..."
+                disabled={isSubmitting}
+              />
+              <button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? "Posting..." : "Post Comment"}
+              </button>
+            </form>
+            <div className="comments-list">
+              {comments.length > 0 ? (
+                comments.map((comment) => (
+                  <div key={comment.id} className="comment">
+                    {/* === KEY CHANGE STARTS HERE === */}
+                    <div className="comment-header">
+                      <p className="comment-author">
+                        {authors[comment.user_id] || "..."}
+                      </p>
+                      {/* This button only appears if the logged-in user is the author of the comment */}
+                      {user && user.id === comment.user_id && (
+                        <button
+                          className="btn-delete-comment"
+                          onClick={() => handleDeleteComment(comment.id)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                    {/* === KEY CHANGE ENDS HERE === */}
+                    <p>{comment.content}</p>
+                    <small>
+                      Posted on{" "}
+                      {new Date(comment.created_at).toLocaleDateString()}
+                    </small>
+                  </div>
+                ))
+              ) : (
+                <p>No comments yet. Be the first to say something!</p>
+              )}
+            </div>
           </section>
         </>
       )}
