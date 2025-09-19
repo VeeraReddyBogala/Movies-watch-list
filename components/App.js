@@ -23,6 +23,14 @@ export default function App() {
   const supabase = createClientComponentClient();
 
   async function handleAddWatched(movie) {
+    const isAlreadyWatched = watched.some(
+      (watchedMovie) => watchedMovie.imdbID === movie.imdbID
+    );
+
+    if (isAlreadyWatched) {
+      alert(`${movie.title} is already in your watched list!`);
+      return;
+    }
     try {
       const movieToAdd = { ...movie, imdbID: movie.imdbID.toLowerCase() };
       const response = await fetch("/api/movies/add", {
@@ -30,8 +38,10 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(movieToAdd),
       });
+
       const data = await response.json();
       if (!response.ok) throw new Error(data.message);
+
       setWatched((prev) => [...prev, movieToAdd]);
     } catch (err) {
       console.error("Error adding movie:", err.message);
@@ -69,6 +79,7 @@ export default function App() {
     setSelectedId(null);
   }
 
+  // runs only once at mount to fetch the current session + movies.
   useEffect(() => {
     async function getSessionAndMovies() {
       const {
@@ -92,6 +103,8 @@ export default function App() {
     }
     getSessionAndMovies();
   }, [supabase]);
+
+  // login or logout
 
   useEffect(() => {
     const {
@@ -353,10 +366,7 @@ function MovieDetails({
   }
 
   async function handleDeleteComment(commentId) {
-    // Optimistically remove the comment from the UI
     setComments(comments.filter((comment) => comment.id !== commentId));
-
-    // Call the backend to delete the comment from the database
     await fetch(`/api/comments/delete/${commentId}`, {
       method: "DELETE",
     });
@@ -371,9 +381,7 @@ function MovieDetails({
   useEffect(() => {
     async function getMovieDetails() {
       setIsLoading(true);
-      const res = await fetch(
-        `https://www.omdbapi.com/?apikey=f84fc31d&i=${selectedId}`
-      );
+      const res = await fetch(`/api/movie/${selectedId}`);
       const data = await res.json();
       setMovie(data);
       setIsLoading(false);
@@ -399,7 +407,7 @@ function MovieDetails({
   useEffect(() => {
     async function fetchAuthors() {
       if (comments.length === 0) {
-        setAuthors({}); // Clear authors if there are no comments
+        setAuthors({});
         return;
       }
       const userIds = [...new Set(comments.map((comment) => comment.user_id))];
@@ -501,12 +509,10 @@ function MovieDetails({
               {comments.length > 0 ? (
                 comments.map((comment) => (
                   <div key={comment.id} className="comment">
-                    {/* === KEY CHANGE STARTS HERE === */}
                     <div className="comment-header">
                       <p className="comment-author">
                         {authors[comment.user_id] || "..."}
                       </p>
-                      {/* This button only appears if the logged-in user is the author of the comment */}
                       {user && user.id === comment.user_id && (
                         <button
                           className="btn-delete-comment"
@@ -516,7 +522,6 @@ function MovieDetails({
                         </button>
                       )}
                     </div>
-                    {/* === KEY CHANGE ENDS HERE === */}
                     <p>{comment.content}</p>
                     <small>
                       Posted on{" "}
